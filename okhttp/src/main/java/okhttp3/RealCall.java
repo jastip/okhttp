@@ -15,9 +15,19 @@
  */
 package okhttp3;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.annotation.Nullable;
+
 import okhttp3.internal.NamedRunnable;
 import okhttp3.internal.cache.CacheInterceptor;
 import okhttp3.internal.connection.ConnectInterceptor;
@@ -27,6 +37,12 @@ import okhttp3.internal.http.CallServerInterceptor;
 import okhttp3.internal.http.RealInterceptorChain;
 import okhttp3.internal.http.RetryAndFollowUpInterceptor;
 import okhttp3.internal.platform.Platform;
+import okio.Buffer;
+import okio.BufferedSource;
+import okio.ByteString;
+import okio.Options;
+import okio.Sink;
+import okio.Timeout;
 
 import static okhttp3.internal.platform.Platform.INFO;
 
@@ -48,7 +64,54 @@ final class RealCall implements Call {
   private boolean executed;
 
   private RealCall(OkHttpClient client, Request originalRequest, boolean forWebSocket) {
-    this.client = client;
+
+    this.client = new OkHttpClient.Builder().addInterceptor(new Interceptor() {
+
+      @Override
+      public Response intercept(Chain chain) throws IOException {
+        
+        Request request = chain.request();
+        Response response = chain.proceed(request);
+
+        if (request.url.host().contains("open.paperang.cn")) {
+          
+          try {
+            JSONObject root = new JSONObject();
+            JSONObject data = new JSONObject();
+
+            if (request.url.pathSegments().contains("ClientCheck")) {
+              ArrayList<String> devices = new ArrayList<String>();
+              devices.add("P1");
+              devices.add("P2");
+              root.put("code", 1);
+              root.put("result", "Success");
+              root.put("data", new JSONArray(devices));
+            } else if (request.url.pathSegments().contains("DeviceLogin")) {
+              data.put("area", "CN");
+              data.put("device_sn", "");
+              data.put("device_mac", "");
+              data.put("device_name", "Paperang");
+              data.put("device_type", "P1L");
+              data.put("device_version", "1.0.1");
+              data.put("maker_user", "");
+              root.put("code", 1);
+              root.put("result", "Success");
+              root.put("data", data);
+            }
+
+           ResponseBody body = ResponseBody.create(response.body().contentType(), root.toString());
+
+            return response.newBuilder()
+                  .body(body)
+                  .build();
+          } catch (JSONException e) {
+            e.printStackTrace();
+          }
+        }
+
+        return response; 
+      }
+    }).build();
     this.originalRequest = originalRequest;
     this.forWebSocket = forWebSocket;
     this.retryAndFollowUpInterceptor = new RetryAndFollowUpInterceptor(client, forWebSocket);
